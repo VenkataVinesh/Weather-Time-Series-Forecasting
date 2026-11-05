@@ -1,39 +1,75 @@
 # Weather Time-Series Forecasting
 
-![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
-![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
-![Statsmodels](https://img.shields.io/badge/Statsmodels-3776AB?style=flat-square)
-![Matplotlib](https://img.shields.io/badge/Matplotlib-11557C?style=flat-square)
+A stacked LSTM for one-step-ahead hourly temperature, compared on a held-out test split with
+persistence, seasonal-naive and SARIMA baselines. The data is **synthetic**: a 24 h cycle plus
+Gaussian noise, so the noise floor is known.
 
-A PyTorch project that builds **stacked-LSTM** sequence predictors for meteorological metrics
-(temperature, humidity, pressure) and studies how recurrent models compare to classical
-**ARIMA/SARIMA** baselines on trend- and seasonality-heavy signals.
+[![CI](https://github.com/VenkataVinesh/Weather-Time-Series-Forecasting/actions/workflows/ci.yml/badge.svg)](https://github.com/VenkataVinesh/Weather-Time-Series-Forecasting/actions/workflows/ci.yml)
+![Python 3.11](https://img.shields.io/badge/python-3.11-3776AB)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
-> **Data note:** training uses a **synthetic** meteorological series with injected trend +
-> seasonality + noise, so the pipeline is fully reproducible without an external dataset. Swap in
-> real sensor data via `data_loader.py` to benchmark on live feeds.
+![First 72 test hours: actual, LSTM and seasonal-naive one-step forecasts](forecast_test.png)
 
-## Architecture
-- **Model:** stacked 2-layer LSTM, 64 hidden units, 0.2 dropout.
-- **Sequence mapping:** 24-step rolling context → next-step forecast.
-- **Training:** MAE loss, Adam optimizer; exports `loss_curve.png`.
+## Quick start
 
-![Loss curve](loss_curve.png)
-
-## Run
 ```bash
-pip install -r requirements.txt
-python train.py     # generates synthetic data, trains 20 epochs, saves loss_curve.png
+git clone https://github.com/VenkataVinesh/Weather-Time-Series-Forecasting.git
+cd Weather-Time-Series-Forecasting
+pip install -r requirements.txt        # CPU is enough; about 10 s for 3 seeds
+python train.py                        # prints the results table, writes results.json and both plots
+pip install -r requirements-dev.txt && pytest -q
 ```
 
-## Files
+## How it works
+
+| | |
+|---|---|
+| Data (`data_loader.py`) | 720 synthetic hours: temperature `20 + 8 sin(2πt/24) + N(0,1)`, humidity anti-correlated with it, pressure a random walk. The target is next-hour temperature |
+| Splits | Chronological 70 / 15 / 15 (train / validation / test). Nothing is shuffled across time |
+| Scaling | Standardisation fitted on the **training slice only**, saved in `lstm.pt` with the weights |
+| Windows | 24 past hours of all three features predict hour t. A window may look back across a split boundary, but every target stays inside its own split |
+| Model (`lstm_model.py`) | 2-layer LSTM, 32 hidden units, dropout 0.2, linear head. L1 loss, Adam (lr 0.005), 15 epochs. The epoch with the best **validation** loss is kept |
+| Baselines (`baselines.py`) | Persistence (y(t−1)); seasonal naive (y(t−24)); SARIMA(1,0,0)(1,0,0)₂₄ fitted on the training slice and filtered forward with fixed parameters |
+
+## Results
+
+`python train.py`: 108 test hours, 3 seeds for the LSTM. MAE in °C, on **synthetic** data:
+
+| Model | Test MAE (°C) |
+|---|---:|
+| Persistence | 1.71 |
+| SARIMA(1,0,0)(1,0,0)₂₄ | 1.14 |
+| Seasonal naive (24 h) | 1.13 |
+| **LSTM** | **1.03 ± 0.01** |
+| *Noise floor (MAE of N(0,1))* | *0.80* |
+
+How to read it: the noise floor is the best any model could do. Seasonal naive's 1.13 equals the
+theory exactly (√2 × 0.80, since it subtracts two noisy points). The LSTM beats it by smoothing
+across the window instead of copying one noisy hour, and closes about 30% of the gap to the
+floor. The test set is small (108 points), so treat the ranking between SARIMA and seasonal naive
+as a tie.
+
+![Train and validation loss per epoch, 3 seeds](loss_curve.png)
+
+## Limitations
+
+- **Synthetic data only.** On a clean sinusoid an LSTM has an easy job. The value here is the
+  evaluation harness (causal splits, train-only scaling, baselines, a known noise floor), not the
+  number. Swapping in a real station series means replacing `generate_synthetic_weather`.
+- One-step-ahead only. Multi-step forecasting would need recursive or direct heads, and
+  probabilistic outputs.
+- Small test set, no hyperparameter search.
+
+## Project layout
+
 ```
-lstm_model.py    # PyTorch LSTM definitions
-data_loader.py   # rolling-window formatting
-train.py         # synthetic data + training loop
+data_loader.py   synthetic generator, chronological split, scaler, window dataset
+lstm_model.py    stacked LSTM
+baselines.py     persistence, seasonal naive, SARIMA (causal one-step)
+train.py         training, evaluation, plots, results.json
+tests/           pytest: split order, train-only scaling, causal windows and baselines
 ```
 
-## Why
-To get hands-on with time-series decomposition (trend / seasonality / residual) and understand
-where autoregressive statistical models struggle with non-linear, multivariate dependencies that a
-recurrent network can capture.
+## License
+
+MIT, see [LICENSE](LICENSE).
