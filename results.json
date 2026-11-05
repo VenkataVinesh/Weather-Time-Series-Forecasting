@@ -1,0 +1,14 @@
+{
+  "data": "synthetic (data_loader.generate_synthetic_weather, seed 42)",
+  "test_points": 108,
+  "mae_degC": {
+    "persistence": 1.7093990367961591,
+    "seasonal_naive_24h": 1.129564796658338,
+    "sarima_100_100_24": 1.142081859400197,
+    "lstm_mean_over_seeds": 1.0266655204223825,
+    "lstm_std_over_seeds": 0.01294165840928015
+  },
+  "noise_floor_degC": "temperature noise is N(0, 1), so even a perfect model has MAE \u2248 0.80",
+  "seeds": 3,
+  "epochs": 15
+}
